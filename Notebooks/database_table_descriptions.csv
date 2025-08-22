@@ -1,0 +1,10 @@
+Table,Description
+CBLR_Raw,Community Bank Leverage Ratio. The columns are date and CBLR_diff. CDLR_diff is the community bank leverage value. It is a number 
+DEGU_Raw,Exchange Rate Depreciation. The columns are date and DEGU_diff. DEGU_diff is the exchange rate depreciation. It is a number 
+GDP_Raw,Gross Domestic Product. The columns are date and GDP. GDP is the gross domestic product. It is a number
+GLA_Raw,Gross Leasable Area. The columns are date and GLA_diff. GLA is gross leasable area. It is a number 
+NPL_Data_Raw,Non-Paying Loans. The columns are date and NPL_diff. NPL is non-paying loans. It is a number 
+transformed_CBLR,Community Bank Leverage Ratio. This table is the transformed version of CBLR_Raw. The columns are date and CBLR_diff. CDLR_diff is the community bank leverage value. It is a number 
+transformed_DEGU,Exchange Rate Depreciation. This table is the transformed version of DEGU_Raw. The columns are date and DEGU_diff. DEGU_diff is the exchange rate depreciation. It is a number 
+transformed_GLA,Gross Leasable Area.This table is the transformed version of GLA_Raw. The columns are date and GLA_diff. GLA is gross leasable area. It is a number 
+transformed_NPL,Non-Paying Loans. This table is the transformed version of NPL_Raw. The columns are date and NPL_diff. NPL is non-paying loans. It is a number 
