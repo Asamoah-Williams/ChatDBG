@@ -22,8 +22,8 @@ import urllib
 # from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool, InjectedToolCallId
 from typing import Annotated, List
-from langgraph.prebuilt import InjectedState
-from src.Agent.State import State
+# from langgraph.prebuilt import InjectedState
+# from src.Agent.State import State
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
 
@@ -79,7 +79,9 @@ class SQLTool:
 
         self.sql_llm = ChatOpenAI(model=llm, temperature=llm_temperature) 
         self.table_llm = ChatOpenAI(model=llm, temperature=llm_temperature)
-        # .with_structured_output(schema=Table)
+        self.banned_tables = ["transformed_GDP"]
+        self.table_names = set()
+        self.tnames_descrip = ""
 
 
     def table_details(self, path: str) -> str:
@@ -94,12 +96,17 @@ class SQLTool:
         '''
 
         table_description = pd.read_csv(path)
+        table_names = set()
         table_details = ""
 
         for index, row in table_description.iterrows():
             table_details = table_details + "Table Name:" + row['Table'] + "\n" + "Table Description:" + row['Description'] + "\n\n"
+            table_names.add(row['Table'])
 
-        return table_details
+        self.table_names = table_names
+        self.tnames_descrip = table_details
+
+        return table_details, table_names
     
 
     def question_to_sql(self, query: str) -> str:
@@ -113,61 +120,77 @@ class SQLTool:
             sql_query: Valid SQL query that represents user's query 
         """
 
-        table_details = self.table_details("Notebooks/database_table_descriptions.csv")
-        # table_details_prompt = f"""Return the names of ALL the SQL tables found in {table_details} that MIGHT be  relevant to the user question.
+        table_details, table_names = self.table_details("Notebooks/database_table_descriptions.csv")
+        table_names = str(list(table_names))
+        banned_tables = str(self.banned_tables)
 
-        # Unless the user question specifies the use of raw data ALL TABLES SHOULD BE OF THE TRANSFORMED DATA, APART FROM GDP WHICH IS ALWAYS RAW.
-
-        # Always double check with the tables in {table_details}
-        # """
-
-        # For example, GDP does not have transformed_GDP so always use GDP_Raw. Another example - NPL has transformed_NPL and NPL_Raw. Always use transformed_NPL unless the user indicated that they want raw data.
-
-        table_details_prompt = f"""Return the names of ALL the SQL tables that ARE RELEVANT to the user question.
-        The tables are:
-
-        {table_details}
-
-        Always favor transformed data over raw data unless the user specifies that they want raw data.
-        If the data does not have a transformed form, use the raw form. 
-        DO NOT HALLUCINATE
-        DO NOT USE transformed_GDP
-
-        Here are some examples of what NOT TO DO:
-        1. User question: What is the correlation between GDP and NPL?
-        Tables: transformed_GDP, transformed_NPL THIS IS WRONG
-
-        2. User question: what is the difference between the NPL and the exchange rate?
-        Tables: NPL_Raw, DEGU_Raw
-
-        3. Plot exchange rate against community GDP
-        Tables: DEGU_Raw, transformed_GDP
+        # print(type(table_details), type(table_names), type(banned_tables))
+        # print("table deatils", table_details)
+        # print("table names", table_names)
+        # print("banned tables", banned_tables)
         
 
-        Here are some examples of what to do:
+        table_details_prompt = f"""Return the names of ALL the SQL tables that ARE RELEVANT to the user question.
+        Choose ONLY from this list (do not invent or hallucinate): {table_names}
+
+        NEVER USE: {banned_tables}    
+
+        {table_details}    
+        
+        If a concept lacks its transformed table, use its raw table.
+        Cross-check with the table and descriptions below, omit if unsure of table name.
+        Tables and Descriptions: 
+        Always favor transformed data over raw data unless the user specifies that they want raw data.
+        
+
+        Here are some examples of WRONG TABLES GIVEN A USER QUESTION:
         1. User question: What is the correlation between GDP and NPL?
-        Tables: GDP_Raw, transformed_NPL
+        Wrong Tables: transformed_GDP, transformed_NPL THIS IS WRONG
+
+        2. User question: what is the difference between the NPL and the exchange rate?
+        Wrong Tables: NPL_Raw, DEGU_Raw THIS IS WRONG
+
+        3. Plot exchange rate against community GDP
+        Wrong Tables: DEGU_Raw, transformed_GDP THIS IS WRONG
+        
+
+        Here are some examples of CORRECT TABLES GIVEN A USER QUESTION:
+        1. User question: What is the correlation between GDP and NPL?
+        Correct Tables: GDP_Raw, transformed_NPL
 
         2. User question: what is the difference between the raw NPL and the transformed NPL?
-        Tables: NPL_Raw, transformed_NPL
+        Correct Tables: NPL_Raw, transformed_NPL
 
         3. Plot exchange rate against community bank leverage ratio
-        Tables: transformed_DEGU, transformed_CBLR
+        Correct Tables: transformed_DEGU, transformed_CBLR
 
-        ALWAYS CROSS-CHECK TO MAKE SURE THAT THE RELEVANT TABLE NAMES YOU HAVE GENERATED ARE PART OF {table_details}.
+        ALWAYS CROSS-CHECK TO MAKE SURE THAT THE RELEVANT TABLE NAMES YOU HAVE GENERATED ARE PART OF {table_names}.
         If the tables aren't do not return them as part of the answer.
         """
 
         def get_tables(tables: List[Table]) -> List[str]:
-            tables  = [table.name for table in tables]
-            return tables
+            # tables  = [table.name if table.name in self.table_names else  for table in tables]
+            final_tables = []
+
+            for table in tables:
+                # print("\n NAME", table.name)
+                # ill have to do the alias thing here as well i guess
+                if table.name in self.table_names:
+                    final_tables.append(table.name)
+
+            # print(final_tables)
+
+            return final_tables
         
 
+        # this SQL query chain must have a prompt with the [[x, y]] and [[label, x, y]] thing 
+        # i also need to validate the sql query to make sure everything is fine
         query_chain = create_sql_query_chain(self.sql_llm, self.db)
+        query_chain.get_prompts()[0].pretty_print()
 
         # convert question to table needed
         table_chain = {"input": itemgetter("question")} | create_extraction_chain_pydantic(Table, self.table_llm, system_message=table_details_prompt) | get_tables
-        # table_chain = {"input": itemgetter("question")} | self.table_llm | get_tables
+
 
         # convert question to sql query
         generate_query = RunnablePassthrough.assign(table_names_to_use=table_chain) | query_chain
@@ -195,26 +218,12 @@ class SQLTool:
 
         return results
 
-    # def question_to_answer(self, question, query, results):
-    #     prompt = ChatPromptTemplate.from_messages([
-    #         ("system", "You are a finance expert. Given a question {question}, the corresponding SQL query {query}, and SQL result {results}, provide a concise and relevant answer for the question."),
-    #         ("human", "Question: {question}\n SQL query: {query}\n SQL query result: {results}\n\nProvide a concise and relevant answer to my question.")
-    #     ])
 
-    #     prompt = prompt.invoke({
-    #         "question": question,
-    #         "query": query,
-    #         "results": results
-    #     })
-
-    #     answer = self.sql_llm.invoke(prompt)
-        
-    #     return answer.content 
-        
         
 @tool
 # def sql_tool(state: Annotated[State, InjectedState]) -> str:
 def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+    # i can put all of this in a try and except block like multiple nested ones?
     """Converts user question to SQL and queries the MSSQL Database. Input should be the question from the user."""
     # Create an instance of MSSQLAgent
     agent = SQLTool(
@@ -226,31 +235,37 @@ def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId
     data = agent.execute_sql(sql_query)
      #error when i run certain prompts, what is the correlation between GDP and NPL
 
-    print("from sql tool", data)
+    # print("from sql tool", data)
 
-    # try:
-    #     results = ast.literal_eval(data)
-    #     if type(results) != list:
-    #     # except (ValueError, SyntaxError):
-    #         results = []
-    # except (ValueError, SyntaxError):
-    #         results = []
-
-    if not data or data.strip() == "":
+    try:
+        data = ast.literal_eval(data)
         return Command(update={
-            "results": [],
+            "messages": [ToolMessage(f"Success generating data from sql. SQL QUERY is {sql_query}. Data from sql query is {data}", tool_call_id=tool_call_id)],
+            "results": [data],
+            "sql_query": [sql_query]
+        })
+    except:
+        return Command(update={
+            "results": [[]],
             "sql_query": None,
             "messages": [ToolMessage("Query returned no results", tool_call_id=tool_call_id)]
         })
 
-    # print("results after try and except block", type(results))
-    data = ast.literal_eval(data)
+    
+    # if not data or data.strip() == "":
+    #     return Command(update={
+    #         "results": [],
+    #         "sql_query": None,
+    #         "messages": [ToolMessage("Query returned no results", tool_call_id=tool_call_id)]
+    #     })
 
-    return Command(update={
-        "messages": [ToolMessage(f"Success generating data from sql. SQL QUERY is {sql_query}. Data from sql query is {data}", tool_call_id=tool_call_id)],
-        "results": data,
-        "sql_query": sql_query
-    })
+    
+
+    # return Command(update={
+    #     "messages": [ToolMessage(f"Success generating data from sql. SQL QUERY is {sql_query}. Data from sql query is {data}", tool_call_id=tool_call_id)],
+    #     "results": data,
+    #     "sql_query": sql_query
+    # })
 
 
     

@@ -18,6 +18,7 @@ from langgraph.types import Command
 from langgraph.checkpoint.postgres import PostgresSaver
 import psycopg2
 from psycopg import Connection
+from langchain_core.messages import trim_messages
 
 TOOLS_CFG = LoadToolsConfig()
 
@@ -31,7 +32,7 @@ def build_graph():
     "user": "dbg_llm", 
     "password": "dbgllm",
     "port": 5432
-}
+    }
     
     con = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
     
@@ -77,7 +78,24 @@ def build_graph():
 
     def chatbot(state: State):
         """Executes the primary language model with tools bound and returns the generated message."""
-        return {"messages": [primary_llm_with_tools.invoke(state["messages"])]}
+        messages = state["messages"]
+
+        # reset answer and answer done everytime this starts 
+
+        trimmed_messages = trim_messages(
+            messages,
+            max_tokens=4000,
+            strategy="last",
+            token_counter=count_tokens_approximately,
+            include_system=True,
+            # allow_partial=True
+        )
+
+        return {"messages": [primary_llm_with_tools.invoke(trimmed_messages)]}
+    
+
+
+
 
     # adding nodes
     graph_builder.add_node("chatbot", chatbot)

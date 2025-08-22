@@ -320,16 +320,22 @@ def visualization_tool(user_question:str, state: Annotated[State, InjectedState]
         question: the user's question 
     """
 
-    question=user_question,
-    sql_query = state["sql_query"],
-    results=state["results"]
+    print("INSIDE VIS TOOL")
 
-    # print(results[-1])
+    question=user_question,
+    sql_query = state.get("sql_query", None),
+    results=state.get("results", None)
+    print("results", results)
+    if results:
+        results = results[0]
+
+    
 
     # print("results from visualization tool", state["results"])
     # print("last index from the results", results)
 
     if not results:
+        print("NOT RESULSTS AT ALLL", results)
         return Command(update={
             "messages": [ToolMessage("No data available for visualization", tool_call_id=tool_call_id)],
             "visualization": "none",

@@ -54,7 +54,7 @@ def lookup_kri_guide(question: str, tool_call_id: Annotated[str, InjectedToolCal
     # return retrieved_content
     return Command(update={
         "messages": [ToolMessage(f"The answer based on the tool is {retrieved_content}", tool_call_id=tool_call_id)],
-        "results": [retrieved_content]
+        "results": [[retrieved_content]]
     })
 
 
