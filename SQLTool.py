@@ -1,10 +1,8 @@
 from sqlalchemy import create_engine
-# from langchain.sql_database import SQLDatabase
 from langchain_community.utilities import SQLDatabase
 import os
 import ast
 from langchain_openai import ChatOpenAI
-# from dotenv import load_dotenv
 import pandas as pd
 from pydantic import BaseModel, Field
 from langchain.chains.openai_tools import create_extraction_chain_pydantic
@@ -12,20 +10,15 @@ from typing import List
 from operator import itemgetter
 from langchain_core.runnables import RunnablePassthrough
 from langchain.chains import create_sql_query_chain
-# from langchain_core.prompts import PromptTemplate
-# from langchain_core.output_parsers import StrOutputParser
-# from DatabaseManager import DatabaseManager
-from src.utils.load_tools_config import LoadToolsConfig
+# from src.utils.load_tools_config import LoadToolsConfig
+from .src.utils.load_tools_config import LoadToolsConfig
 from langchain_community.tools.sql_database.tool import QuerySQLDatabaseTool
 import urllib
-# from dotenv import load_dotenv
-# from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool, InjectedToolCallId
 from typing import Annotated, List
-# from langgraph.prebuilt import InjectedState
-# from src.Agent.State import State
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
+from langchain_community.agent_toolkits import SQLDatabaseToolkit
 
 TOOLS_CFG = LoadToolsConfig()
 
@@ -76,6 +69,7 @@ class SQLTool:
         connectionString=f"mssql+pyodbc://{uid}:{password}@testpfidb.database.windows.net/DBG_DATA?driver=ODBC+Driver+18+for+SQL+Server"
         db_engine = create_engine(connectionString)
         self.db = SQLDatabase(db_engine, view_support=True, schema="dbo") 
+        
 
         self.sql_llm = ChatOpenAI(model=llm, temperature=llm_temperature) 
         self.table_llm = ChatOpenAI(model=llm, temperature=llm_temperature)
@@ -120,14 +114,9 @@ class SQLTool:
             sql_query: Valid SQL query that represents user's query 
         """
 
-        table_details, table_names = self.table_details("Notebooks/database_table_descriptions.csv")
+        table_details, table_names = self.table_details("../../Notebooks/database_table_descriptions.csv")
         table_names = str(list(table_names))
         banned_tables = str(self.banned_tables)
-
-        # print(type(table_details), type(table_names), type(banned_tables))
-        # print("table deatils", table_details)
-        # print("table names", table_names)
-        # print("banned tables", banned_tables)
         
 
         table_details_prompt = f"""Return the names of ALL the SQL tables that ARE RELEVANT to the user question.
@@ -169,37 +158,35 @@ class SQLTool:
         """
 
         def get_tables(tables: List[Table]) -> List[str]:
-            # tables  = [table.name if table.name in self.table_names else  for table in tables]
             final_tables = []
 
             for table in tables:
-                # print("\n NAME", table.name)
                 # ill have to do the alias thing here as well i guess
                 if table.name in self.table_names:
                     final_tables.append(table.name)
 
-            # print(final_tables)
-
             return final_tables
         
+        # # this SQL query chain must have a prompt with the [[x, y]] and [[label, x, y]] thing 
+        # # i also need to validate the sql query to make sure everything is fine
+        # query_chain = create_sql_query_chain(self.sql_llm, self.db)
+        # query_chain.get_prompts()[0].pretty_print()
 
-        # this SQL query chain must have a prompt with the [[x, y]] and [[label, x, y]] thing 
-        # i also need to validate the sql query to make sure everything is fine
-        query_chain = create_sql_query_chain(self.sql_llm, self.db)
-        query_chain.get_prompts()[0].pretty_print()
-
-        # convert question to table needed
+        # # convert question to table needed
         table_chain = {"input": itemgetter("question")} | create_extraction_chain_pydantic(Table, self.table_llm, system_message=table_details_prompt) | get_tables
+        ans = table_chain.invoke({
+            "question": query
+        }
+        )
 
+        # # convert question to sql query
+        # generate_query = RunnablePassthrough.assign(table_names_to_use=table_chain) | query_chain
 
-        # convert question to sql query
-        generate_query = RunnablePassthrough.assign(table_names_to_use=table_chain) | query_chain
-
-        sql_query = generate_query.invoke(
-                {"question": query}
-                )
+        # sql_query = generate_query.invoke(
+        #         {"question": query}
+        #         )
         
-        return sql_query
+        # return sql_query
     
 
     def execute_sql(self, sql_query):
@@ -269,6 +256,6 @@ def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId
 
 
     
-# sql = SQLTool(llm="gpt-3.5-turbo", llm_temperature= 0.0)
-# ans = sql.question_to_sql("i want the gdp for 2025")
-# print (ans)
+sql = SQLTool(llm="gpt-3.5-turbo", llm_temperature= 0.0)
+ans = sql.question_to_sql("When the community bank leverage ratio fell, how did NPL change in the next quarter?")
+print (ans)

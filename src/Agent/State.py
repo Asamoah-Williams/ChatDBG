@@ -4,18 +4,22 @@ import operator
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.graph.message import add_messages
 
+
+# sql_query: NotRequired[Annotated[List[Any], operator.add]]
+# uid: str
+# results: NotRequired[Annotated[List[Any], operator.add]]
+# sql_results: NotRequired[Annotated[List[Any], operator.add]]
+# visualization: NotRequired[Annotated[str, operator.add]] #the type of visualization
+# answer: NotRequired[Annotated[str, operator.add]] #the llms answer
+
 class State(AgentState):
-    question: NotRequired[str] #user's question
-    # uid: str
-    # sql_query: NotRequired[str] #sql query from sql tool
-    sql_query: NotRequired[Annotated[List[Any], operator.add]]
-    # results: NotRequired[List[Any]] #the results of any of the tools???
-    results: NotRequired[Annotated[List[Any], operator.add]]
-    # visualization: Annotated[str, operator.add]
-    visualization: NotRequired[Annotated[str, operator.add]] #the type of visualization
-    # answer: NotRequired[Annotated[str, operator.add]] #the llms answer
+    user_question: NotRequired[str] #user's question
+    sql_query: NotRequired[str] #sql query from sql tool
+    results: NotRequired[List[Any]] #the results of any of the tools???
+    sql_results: NotRequired[List[Any]]
+    visualization: NotRequired[str]
     answer: NotRequired[str]
-    visualization_reason: NotRequired[Annotated[str, operator.add]] #reason for a certain visualization type
+    visualization_reason: NotRequired[str] #reason for a certain visualization type
     formatted_data_for_visualization: NotRequired[Dict[str, Any]] #data for visualization
     error: NotRequired[str] #any error that comes up
     answer_done: NotRequired[bool]

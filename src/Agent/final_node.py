@@ -14,10 +14,14 @@ def finalizer(state: State):
     """Creates a concise final answer based on the graph state and messages"""
     llm = ChatOpenAI(model=TOOLS_CFG.primary_agent_llm, 
                     temperature=TOOLS_CFG.primary_agent_llm_temperature, streaming=True)
+    
+    # print(state.get("user_question"))
 
+    question = state.get("user_question")
     visualization = state.get("visualization", None)
     visualization_reason = state.get("visualization_reason", None)
     messages = state.get("messages", None)
+    response = messages[-1].content
     # data = state.get("formatted_data_for_visualization", None)
 
     # obviously my data is making the thing max awt. what me ah dooo
@@ -35,13 +39,15 @@ def finalizer(state: State):
     prompt = ChatPromptTemplate.from_messages([
         ("system",
             """
-            You are a friendly finance expert finalizing the answer for the user. Write a concise, grounded response using ONLY the state messages {messages}. IF THE VISUALIZATION {visualization} VALUE IS NOT NONE OR ANY OTHER VALUE INDICATING NO VISUALIZATION, include a 150 word concise and accurate summary of the visualization using the visualization name {visualization}, and the visualization reason {visualization_reason}. The summary of the visualization should always come after the answer to the user's prompt. If something in the user prompt is unclear, state it briefly. If the answer is not sufficient for the user's question state it briefly. Do not include any links to images.
+            You are a friendly finance expert finalizing the answer for the user. Write a concise, grounded response considering ONLY the user question {question} and the formulated response {response}.
         """),
         ("human",
             """
         Messages: {messages} \n
         Visualization: {visualization} \n
         Visualization Reason: {visualization_reason} \n
+        Question: {question} \n
+        Response: {response}
         Provide a concise, grounded answer to my question.
         """ )
     ])
@@ -51,7 +57,8 @@ def finalizer(state: State):
         messages = trimmed_messages,
         visualization = visualization,
         visualization_reason = visualization_reason,
-        # data = data
+        question = question,
+        response = response
     )
 
     final_answer = llm.invoke(prompt)
@@ -62,3 +69,4 @@ def finalizer(state: State):
         "answer": final_answer.content,
         "answer_done": True
     })
+#  IF THE VISUALIZATION {visualization} VALUE IS NOT NONE OR ANY OTHER VALUE INDICATING NO VISUALIZATION, include a 100 word concise and accurate summary of the visualization using the visualization name {visualization}, and the visualization reason {visualization_reason}. The summary of the visualization should always come after the answer to the user's prompt. If something in the user prompt is unclear, state it briefly. If the answer is not sufficient for the user's question state it briefly. Do not include any links to images.

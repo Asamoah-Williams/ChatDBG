@@ -1,16 +1,16 @@
 primary_agent:
-  llm: "gpt-3.5-turbo"
-  llm_temperature: 0.0
+  llm: gpt-4.1
+  llm_temperature: 1
 
 sqlagent_configs:
-  llm: "gpt-3.5-turbo"
+  llm: gpt-4.1
   llm_temperature: 0.0
 
 guiderag_configs:
   docs: "Notebooks\\vectorDocs"
   # vectordb: "data/airline_policy_vectordb"
   collection_name: guide-rag
-  llm: gpt-4o-mini
+  llm: gpt-4.1
   llm_temperature: 0.0
   embedding_model: text-embedding-3-small
   chunk_size: 50

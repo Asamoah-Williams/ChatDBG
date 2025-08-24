@@ -41,13 +41,15 @@ class GuideRAGTool:
         self.k = k
 
 @tool
-def lookup_kri_guide(question: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+def lookup_kri_guide(state:State, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
     """Search through the key risk indicator guide and find the answer to the query. Input should be the user's question."""
     rag_tool = GuideRAGTool(
         embedding_model=TOOLS_CFG.guiderag_embedding_model,
         collection_name=TOOLS_CFG.guiderag_collection_name,
         k = TOOLS_CFG.guiderag_k
     )
+
+    question = state.get("user_question", None)
     docs = rag_tool.vector_store.similarity_search(query=question, k=rag_tool.k)
     retrieved_content = "\n\n".join([ans.page_content for ans in docs])
     

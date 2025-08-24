@@ -9,8 +9,13 @@ from langgraph.types import Command
 from langchain_core.messages import ToolMessage
 from typing import Annotated, List
 from src.Agent.State import State
+from .State import State
 from langgraph.prebuilt import InjectedState
 from src.utils.load_project_configs import LoadProjectConfigs
+# from load_project_configs import LoadProjectConfigs
+from ..utils.graph_instructions import graph_instructions
+import json
+import datetime
 
 # load_dotenv()
 TOOLS_CFG = LoadToolsConfig()
@@ -81,23 +86,23 @@ class VisualizationTool:
             try:
                 return self.format_scatter_data(results, question, sql_query, visualization)
             except Exception as e:
-                return self.format_other_visualizations()
+                return self.format_other_visualizations(question=question, visualization=visualization, results=results, sql_query=sql_query)
         
         if visualization == "bar" or visualization == "horizontal_bar":
             try:
                 return self.format_bar_data(results, question)
             except Exception as e:
-                return self.format_other_visualizations()
+                return self.format_other_visualizations(question=question, visualization=visualization, results=results, sql_query=sql_query)
         
         if visualization == "line":
             try:
-                return self.format_line_data(results, question)
+                return self.format_line_data(results, question, sql_query)
             except Exception as e:
-                return self.format_other_visualizations()
+                return self.format_other_visualizations(question=question, visualization=visualization, results=results, sql_query=sql_query)
             
-        return "hi"
+        return self.format_other_visualizations(question=question, visualization=visualization, results=results, sql_query=sql_query)
 
-    def format_line_data(self, results, question):
+    def format_line_data(self, results, question, query):
         formatted_data = {}
 
         if len(results[0]) == 2:
@@ -106,12 +111,13 @@ class VisualizationTool:
 
         # Use LLM to get a relevant label
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the data series."),
-                ("human", "Question: {question}\n Data (first few rows): {data}\n\nProvide a concise label for this y axis. For example, if the data is the GDP figures over time, the label could be 'GDP'. If the data is the non paying loans growth, the label could be 'NPL'. If the data is the community bank leverage ratio trend, the label could be 'Community bank leverage ratio'."),
+                ("system", "You are a data labeling expert. Given a question, some data, and the SQL Query, provide a concise and relevant label for the data series."),
+                ("human", "Question: {question}\n Data (first few rows): {data}\n SQL Query {query}\n\nProvide a concise label for this y axis. For example, if the data is the GDP figures over time, the label could be 'GDP'. If the data is the non paying loans growth, the label could be 'NPL'. If the data is the community bank leverage ratio trend, the label could be 'Community bank leverage ratio'."),
             ])
             prompt = prompt.invoke({
                 "question": question,
-                "data": str(results[:2])
+                "data": str(results[:2]),
+                "query": query
             })
             label = self.llm.invoke(prompt).content
 
@@ -126,43 +132,24 @@ class VisualizationTool:
             }
             
         elif len(results[0]) == 3:
-            #Group data by label
-            data_by_label = {}
             x_values = []
+            y_values = [{"data": [],
+                 "label": ""},
+                 {"data": [],
+                 "label": ""}
+                ]
 
-            labels = list(set(row[0] for row in results if type(row[0]) != float and "-" not in row[0]))
-
-            # if labels are not in first position check second position
-            if not labels:
-                labels = list(set(row[1] for row in results if type(row[1]) != float and "-" not in row[1]))
-            
             for row in results:
-                if type(row[0]) != float and "-" not in row[0]:
-                    label, x, y = row[0], row[1], row[2]
+                # if type(row[0]) != float and ("-" in row[0] or "/" in row[0]):
+                if type(row[0]) != float:
+                    x1, y1, y2 = row[0], row[1], row[2]
                 else:
-                    x, label, y = row[0], row[1], row[2]
+                    y1, x1, y2 = row[0], row[1], row[2]
 
                 # if x not in x_values:
-                x_values.append(x)
-
-                if label not in data_by_label:
-                    data_by_label[label] = []
-                
-                # add y values 
-                data_by_label[label].append(float(y))
-
-                for other_label in labels:
-                    if other_label != label:
-                        if other_label not in data_by_label:
-                            data_by_label[other_label] = []
-                        data_by_label[other_label].append(None)
-
-            # create y_values per label
-            y_values = [
-                {"data": data,
-                "label": label}
-                for label, data in data_by_label.items()
-            ]
+                x_values.append(x1)
+                y_values[0].get("data").append(y1)
+                y_values[1].get("data").append(y2)
 
             formatted_data = {
                 "xValues": x_values,
@@ -172,16 +159,24 @@ class VisualizationTool:
 
             # get a relevant lable for the y-axis 
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the data series."),
-                ("human", "Question: {question}\n Data (first few rows): {data}\n\nProvide a concise label for this y axis. For example, if the data is the GDP figures over time, the label could be 'GDP'. If the data is the non paying loans growth, the label could be 'NPL'. If the data is the community bank leverage ratio trend, the label could be 'Community bank leverage ratio'."),
+                ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the numeric values and a label for the y axis."),
+                ("human", "Question: {question}\n Data (first few rows): {data}\n SQL Query {query}\n\nProvide a concise label for the second and third values as well as the y axis. For example, if the data is the NPL and GDP figures over time, the first label could be 'NPL', second label 'GDP' and third label 'NPL and GDP over time'. Return the data in the form [value1 label, value2 label, y axis label]"),
             ])
             prompt = prompt.invoke({
                 "question": question,
-                "data": str(results[:2])
+                "data": str(results[:2]),
+                "query": query
             })
             label = self.llm.invoke(prompt)
-
-            formatted_data["yAxisLabel"] = label.content.strip()
+            try:
+                label = ast.literal_eval(label.content)
+                y_values[0]["label"] = label[0]
+                y_values[1]["label"] = label[1]
+                formatted_data["yAxisLabel"] = label[2]
+                print("label", formatted_data)
+            except:
+                print(label)
+                print("error with vis")
        
         return {"formatted_data": formatted_data}
 
@@ -302,12 +297,24 @@ class VisualizationTool:
 
         return {"formatted_data": formatted_data}
 
-    def format_other_visualizations(self):
-        pass
+    def format_other_visualizations(self, visualization, question, results, sql_query):
+        instructions = graph_instructions[visualization]
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a Data expert who formats data according to the required needs. You are given the question asked by the user, it's sql query, the result of the query and the format you need to format it in."),
+            ("human", 'For the given question: {question}\n\nSQL query: {sql_query}\n\Result: {results}\n\nUse the following example to structure the data: {instructions}. Just give the json string. Do not format it')
+        ])
+        response = self.llm.invoke(prompt, question=question, sql_query=sql_query, results=results, instructions=instructions)
+            
+        try:
+            formatted_data_for_visualization = json.loads(response)
+            return {"formatted_data_for_visualization": formatted_data_for_visualization}
+        except json.JSONDecodeError:
+            return {"error": "Failed to format data for visualization", "raw_response": response}
 
 
 @tool
-def visualization_tool(user_question:str, state: Annotated[State, InjectedState],
+# def visualization_tool():
+def visualization_tool(state: Annotated[State, InjectedState],
      tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
 
     """
@@ -320,25 +327,16 @@ def visualization_tool(user_question:str, state: Annotated[State, InjectedState]
         question: the user's question 
     """
 
-    print("INSIDE VIS TOOL")
-
-    question=user_question,
+    question=state.get("user_question", None),
     sql_query = state.get("sql_query", None),
-    results=state.get("results", None)
-    print("results", results)
-    if results:
-        results = results[0]
+    sql_results=state.get("sql_results", None)
 
-    
-
-    # print("results from visualization tool", state["results"])
-    # print("last index from the results", results)
-
-    if not results:
-        print("NOT RESULSTS AT ALLL", results)
+    if not sql_results:
+        print("NO SQL RES")
         return Command(update={
             "messages": [ToolMessage("No data available for visualization", tool_call_id=tool_call_id)],
             "visualization": "none",
+            "visualization_reason": "none",
             "formatted_data_for_visualization": {}
         })
 
@@ -346,12 +344,14 @@ def visualization_tool(user_question:str, state: Annotated[State, InjectedState]
     visualization, reason = vis.visualization_type(
         question=question,
         query = sql_query,
-        results=results
+        results=sql_results
     )
     visualization = visualization.strip().lower()
 
+    visualization = "line"
+
     formatted_data = vis.format_data(visualization=visualization,
-                                    results=results,sql_query=sql_query,
+                                    results=sql_results,sql_query=sql_query,
                                     question=question)
     
     return Command(update={
@@ -360,3 +360,5 @@ def visualization_tool(user_question:str, state: Annotated[State, InjectedState]
         "visualization_reason": reason,
         "formatted_data_for_visualization": formatted_data
     })
+
+# visualization_tool()

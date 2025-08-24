@@ -1,7 +1,7 @@
 from typing import List, Tuple
 from .utils.load_project_configs import LoadProjectConfigs
 from .utils.load_tools_config import LoadToolsConfig
-from Agent.graph import build_graph
+from .Agent.graph import build_graph
 
 # URL = "https://github.com/Farzad-R/LLM-Zero-to-Hundred/tree/master/RAG-GPT"
 # hyperlink = f"[RAG-GPT user guideline]({URL})"
@@ -40,6 +40,8 @@ class ChatBot:
         """
         # The config is the **second positional argument** to stream() or invoke()!
         input_msg = {"role": "user", "content": message}
+        # if im creating a new thread per run then it has to be here
+        # how would i get the state though since chatbot is diff 
         final_state = graph.invoke(
             {"messages": [input_msg]},
             config={"configurable": {
@@ -47,6 +49,19 @@ class ChatBot:
                 "checkpoint_ns": f"myapp:{user_id}"   # all sessions for this user live here
             }}
         )
+
+        # old = graph.get_state({"configurable": {"thread_id": old_tid}})
+        # msgs = old.values.get("messages", [])
+
+        # # New thread_id -> empty state for all other keys
+        # new_tid = str(uuid4())
+        # config = {"configurable": {"thread_id": new_tid}}
+
+        # # Seed just messages
+        # graph.update_state(config, {"messages": msgs}, as_node="seed_messages")
+
+        # # Run the graph
+        # out = graph.invoke({"messages": [... + new_user_message...]}, config=config)
 
 #         app.invoke(
 #     initial_state,

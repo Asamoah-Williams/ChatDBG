@@ -1,14 +1,15 @@
-from ..utils import LoadToolsConfig
+from ..utils.load_tools_config import LoadToolsConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from State import State
-from SQLTool import sql_tool
-from TavilyTool import load_tavily_search_tool
-from RAGTool import lookup_kri_guide
-from VisualizationTool import visualization_tool
-from tool_node import route_tools
+from .State import State
+# from SQLTool import sql_tool
+from .TavilyTool import load_tavily_search_tool
+from .SQLTool2 import sql_tool
+from .RAGTool import lookup_kri_guide
+from .VisualizationTool import visualization_tool
+from .tool_node import route_tools
 from langgraph.prebuilt import ToolNode
-from final_node import finalizer
+from .final_node import finalizer
 from IPython.display import Image, display
 from langchain_core.runnables.graph import CurveStyle, MermaidDrawMethod, NodeStyles
 from langmem.short_term import SummarizationNode
@@ -45,18 +46,6 @@ def build_graph():
     conn = Connection.connect(con, **connection_kwargs)
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
-    # checkpointer = PostgresSaver.from_conn_string(conn_string=con)
-    # checkpointer = PostgresSaver(con)
-
-    # checkpointer.setup()
-    
-    # summarization_node = SummarizationNode( 
-    #     token_counter=count_tokens_approximately,
-    #     # model=model,
-    #     max_tokens=384,
-    #     max_summary_tokens=128,
-    #     output_messages_key="messages",
-    # )
 
     graph_builder = StateGraph(State)
 
@@ -80,8 +69,6 @@ def build_graph():
         """Executes the primary language model with tools bound and returns the generated message."""
         messages = state["messages"]
 
-        # reset answer and answer done everytime this starts 
-
         trimmed_messages = trim_messages(
             messages,
             max_tokens=4000,
@@ -94,32 +81,39 @@ def build_graph():
         return {"messages": [primary_llm_with_tools.invoke(trimmed_messages)]}
     
 
+    def capture(state: State):
+        """Executes the primary language model with tools bound and returns the generated message."""
+        messages = state.get("messages")
+
+        # reset all the others here 
+
+        return {
+            "user_question": messages[-1].content,
+            "sql_query": "",
+            "sql_results": [],
+            "answer": "",
+        }
 
 
 
     # adding nodes
+    graph_builder.add_node("capture", capture)
     graph_builder.add_node("chatbot", chatbot)
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("finalizer", finalizer)
 
     # adding edges 
-    graph_builder.add_edge(START, "chatbot")
+    graph_builder.add_edge(START, "capture")
+    graph_builder.add_edge("capture", "chatbot")
     graph_builder.add_conditional_edges(
         "chatbot",
         route_tools,
-        # The following dictionary lets you tell the graph to interpret the condition's outputs as a specific node
-        # It defaults to the identity function, but if you
-        # want to use a node named something else apart from "tools",
-        # You can update the value of the dictionary to something else
-        # e.g., "tools": "my_tools"
         {"tools": "tools", "__end__": "finalizer"},
     )
-    # Any time a tool is called, we return to the chatbot to decide the next step
     graph_builder.add_edge("tools", "chatbot")
-    # graph_builder.add_edge("chatbot", "finalizer")
     graph_builder.add_edge("finalizer", END)
     
-    # memory = MemorySaver()
+
     graph = graph_builder.compile(checkpointer=checkpointer)
     return graph
 
