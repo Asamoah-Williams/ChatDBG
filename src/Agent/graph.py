@@ -92,6 +92,11 @@ def build_graph():
             "sql_query": "",
             "sql_results": [],
             "answer": "",
+            "answer_done": False,
+            "visualization": "",
+            "visualization_reason": "",
+            "formatted_data_for_visualization": {},
+            "results": []
         }
 
 

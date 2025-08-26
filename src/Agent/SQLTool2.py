@@ -23,6 +23,7 @@ from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, ToolMessage
 from .State import State
+import json
 
 
 TOOLS_CFG = LoadToolsConfig()
@@ -74,11 +75,16 @@ class SQLTool:
         connectionString=f"mssql+pyodbc://{uid}:{password}@testpfidb.database.windows.net/DBG_DATA?driver=ODBC+Driver+18+for+SQL+Server"
         db_engine = create_engine(connectionString)
         self.db = SQLDatabase(db_engine, view_support=True, schema="dbo") 
-        
 
+        # try:
+        #     self.db.run("SELECT 1")
+        # except:
+        #     print("error with db")
+                        
         self.llm = init_chat_model(llm)
         toolkit = SQLDatabaseToolkit(db=self.db, llm=self.llm)
         self.tools = toolkit.get_tools()
+
 
     def table_details(self, path: str) -> str:
         '''
@@ -117,7 +123,7 @@ def sql_tool(state:State, tool_call_id: Annotated[str, InjectedToolCallId]) -> C
     )
 
     table_details = agent.table_details("C:\\Users\\user\\Documents\\NPL\\LLM-WOKG\\Notebooks\\database_table_descriptions.csv")
-
+        # - Always cast DATE keys to DATE type first
     system_prompt = """
         You are an agent designed to interact with a SQL database.
         Given an input question, create a syntactically correct {dialect} query to run,
@@ -125,16 +131,13 @@ def sql_tool(state:State, tool_call_id: Annotated[str, InjectedToolCallId]) -> C
         specifies a specific number of examples they wish to obtain, always limit your
         query to at most {top_k} results.
 
-        When users request information about multiple variables, 
-        you MUST create queries that include ALL requested variables in a single query or 
-        coordinated set of queries.
-
         CRITICAL RULES:
+        - When users request information about multiple variables, YOU MUST CREATE A SINGLE QUERY that include ALL requested variables in a single query
         - If multiple variables are mentioned (e.g., "NPL_diff and DEGU_diff"), your query must encompass getting data from BOTH variables and using merging strategies
         - Never create separate queries for each variable when they should be analyzed together
         - Use JOINs, UNIONs, or subqueries as needed to combine data from multiple sources
         - If variables are from different tables, find common keys (like DATE) to join them
-        - Always cast DATE keys to DATE type first
+        - DATE should not be returned as datetype 
 
         Example: If asked for "NPL_diff and DEGU_diff trends", create a query that shows both metrics together, not separate queries for each.
 
@@ -179,26 +182,46 @@ def sql_tool(state:State, tool_call_id: Annotated[str, InjectedToolCallId]) -> C
     user_question = state.get("user_question")
     input = {"messages": [{"role": "user", "content": user_question}]}
 
-    ans = agent.invoke(input)
+
     ans_dict = dict()
 
-    for message in ans["messages"]:
-        if type(message) == ToolMessage: 
-            if message.name  == 'sql_db_query':
-                try:
-                    data = message.content 
-                    data = ast.literal_eval(data)
-                    ans_dict["data"] = data
-                except:
-                    print("DATA", data)
-                    ans_dict["data"] = []
-        elif type(message) == AIMessage:
-            if message.tool_calls and message.tool_calls[0].get("name") == 'sql_db_query':
-                    query = message.tool_calls[0].get("args")["query"]
-                    ans_dict["sql_query"] = query
+    for i in range(3):
+        ans = agent.invoke(input)
+        
+        for message in ans["messages"]:
+            if type(message) == ToolMessage: 
+                if message.name  == 'sql_db_query':
+                    try:
+                        data = message.content 
+                        # data literal eval
+                        try:
+                            data = ast.literal_eval(data)
+                            if type(data) == str:
+                                data = []
+                            ans_dict["data"] = data
+                        # json.dumps
+                        except:
+                            try:
+                                data = json.dumps(data)
+                                if type(data) == str:
+                                    data = []
+                                ans_dict["data"] = data
+                            except:
+                                print("data conversion not working")
+                    except TypeError as e:
+                        print("DATA", data, e)
+                        ans_dict["data"] = []
+            elif type(message) == AIMessage:
+                if message.tool_calls and message.tool_calls[0].get("name") == 'sql_db_query':
+                        query = message.tool_calls[0].get("args")["query"]
+                        ans_dict["sql_query"] = query
+
+        if len(ans_dict["data"]) > 0:
+            break
+
 
     try:
-        print("we entered here")
+        print("we entered here", data)
         return Command(update={
             "sql_results": ans_dict["data"],
             "sql_query": ans_dict["sql_query"],
@@ -206,6 +229,8 @@ def sql_tool(state:State, tool_call_id: Annotated[str, InjectedToolCallId]) -> C
         })
     except:
         print("the error is happening here")
+
+    
 
 
     

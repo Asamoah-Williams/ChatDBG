@@ -210,7 +210,6 @@ class SQLTool:
 @tool
 # def sql_tool(state: Annotated[State, InjectedState]) -> str:
 def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
-    # i can put all of this in a try and except block like multiple nested ones?
     """Converts user question to SQL and queries the MSSQL Database. Input should be the question from the user."""
     # Create an instance of MSSQLAgent
     agent = SQLTool(
@@ -220,9 +219,6 @@ def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId
 
     sql_query = agent.question_to_sql(user_question)
     data = agent.execute_sql(sql_query)
-     #error when i run certain prompts, what is the correlation between GDP and NPL
-
-    # print("from sql tool", data)
 
     try:
         data = ast.literal_eval(data)
@@ -232,6 +228,7 @@ def sql_tool(user_question: str, tool_call_id: Annotated[str, InjectedToolCallId
             "sql_query": [sql_query]
         })
     except:
+        print("SQL TOOL",data)
         return Command(update={
             "results": [[]],
             "sql_query": None,

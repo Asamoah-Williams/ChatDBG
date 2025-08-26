@@ -16,6 +16,8 @@ from src.utils.load_project_configs import LoadProjectConfigs
 from ..utils.graph_instructions import graph_instructions
 import json
 import datetime
+from langchain_core.messages import trim_messages
+from langchain_core.messages.utils import count_tokens_approximately
 
 # load_dotenv()
 TOOLS_CFG = LoadToolsConfig()
@@ -28,10 +30,10 @@ class VisualizationTool:
         self.llm = ChatOpenAI(model=llm, temperature=llm_temperature)
         # self.state = state
 
-    def visualization_type(self, question, query, results):
+    def visualization_type(self, question, query, results, messages):
         prompt = ChatPromptTemplate.from_messages([
             ("system", '''
-                You are an AI assistant that recommends appropriate data visualizations. Based on the user's question, SQL query, and query results, suggest the most suitable type of graph or chart to visualize the data. If no visualization is appropriate, indicate that.
+                You are an AI assistant that recommends appropriate data visualizations. Based on the user's question, message history, SQL query, and query results, suggest the most suitable type of graph or chart to visualize the data. If no visualization is appropriate, indicate that.
 
                 Available chart types and their use cases:
                 - Bar Graphs: Best for comparing categorical data or showing changes over time when categories are discrete and the number of categories is more than 2. Use for questions like "What are the sales figures for each product?" or "How does the population of cities compare? or "What percentage of each city is male?"
@@ -40,6 +42,7 @@ class VisualizationTool:
                 - Pie Charts: Ideal for showing proportions or percentages within a whole. Use for questions like "What is the market share distribution among different companies?" or "What percentage of the total revenue comes from each product?"
                 - Line Graphs: Best for showing trends and distributionsover time. Best used when both x axis and y axis are continuous. Used for questions like "How have website visits changed over the year?" or "What is the trend in temperature over the past decade?". Do not use it for questions that do not have a continuous x axis or a time based x axis.
 
+                Prioritize the user's question {question} when recommending the visualization.
                 Consider these types of questions when recommending a visualization:
                 1. Aggregations and Summarizations (e.g., "What is the average revenue by month?" - Line Graph)
                 2. Comparisons (e.g., "Compare the sales figures of Product A and Product B over the last year." - Line or Column Graph)
@@ -60,6 +63,7 @@ class VisualizationTool:
                 User question: {question}
                 SQL query: {sql_query}
                 Query results: {results}
+                Message History: {messages}
                 Recommend a visualization:'''
             ),
         ])
@@ -67,7 +71,8 @@ class VisualizationTool:
         vis_prompt = prompt.invoke({
             "question": question,
             "sql_query": query,
-            "results": results
+            "results": results,
+            "messages": messages
         })
 
         response = self.llm.invoke(vis_prompt)
@@ -102,6 +107,7 @@ class VisualizationTool:
             
         return self.format_other_visualizations(question=question, visualization=visualization, results=results, sql_query=sql_query)
 
+# done
     def format_line_data(self, results, question, query):
         formatted_data = {}
 
@@ -160,7 +166,7 @@ class VisualizationTool:
             # get a relevant lable for the y-axis 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the numeric values and a label for the y axis."),
-                ("human", "Question: {question}\n Data (first few rows): {data}\n SQL Query {query}\n\nProvide a concise label for the second and third values as well as the y axis. For example, if the data is the NPL and GDP figures over time, the first label could be 'NPL', second label 'GDP' and third label 'NPL and GDP over time'. Return the data in the form [value1 label, value2 label, y axis label]"),
+                ("human", "Question: {question}\n Data (first few rows): {data}\n SQL Query {query}\n\nProvide a concise label for the second and third values as well as the y axis. For example, if the data is the NPL and GDP figures over time, the first label could be 'NPL', second label 'GDP' and third label 'NPL and GDP over time'. Return the data in the form [value1Label, value2Label, yAxisLabel]"),
             ])
             prompt = prompt.invoke({
                 "question": question,
@@ -185,7 +191,6 @@ class VisualizationTool:
             results = eval(results)
 
         formatted_data = {"series": [], "xLabel": "", "yLabel": ""}
-        
 
         if len(results[0]) == 2:
             formatted_data["series"].append({
@@ -212,9 +217,8 @@ class VisualizationTool:
             formatted_data["xLabel"] = label[0]
             formatted_data["yLabel"] = label[1]
 
-
         elif len(results[0]) == 3:
-            print("here")
+            print("scatter 3")
             entities = {}
             for row in results:
                 # Determine which item is the label (string not convertible to float and not containing "/")
@@ -330,6 +334,7 @@ def visualization_tool(state: Annotated[State, InjectedState],
     question=state.get("user_question", None),
     sql_query = state.get("sql_query", None),
     sql_results=state.get("sql_results", None)
+    messages = state.get("messages", None)
 
     if not sql_results:
         print("NO SQL RES")
@@ -339,12 +344,22 @@ def visualization_tool(state: Annotated[State, InjectedState],
             "visualization_reason": "none",
             "formatted_data_for_visualization": {}
         })
+    
+    trimmed_messages = trim_messages(
+            messages,
+            max_tokens=200,
+            strategy="last",
+            token_counter=count_tokens_approximately,
+            include_system=True,
+            # allow_partial=True
+        )
 
     vis = VisualizationTool("gpt-3.5-turbo", 0)
     visualization, reason = vis.visualization_type(
         question=question,
         query = sql_query,
-        results=sql_results
+        results=sql_results,
+        messages = trimmed_messages 
     )
     visualization = visualization.strip().lower()
 
